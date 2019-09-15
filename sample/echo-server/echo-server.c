@@ -20,7 +20,7 @@ static void listener_cb(struct evconnlistener* listener, evutil_socket_t fd,
     struct sockaddr *addr, int len, void* user_data);
 static void conn_writecb(struct bufferevent *bev, void *user_data);
 static void conn_eventcb(struct bufferevent* bev, short events, void* user_data);
-static void signal_cb(evutil_socket_t, short events, void* user_data);
+static void signal_cb(evutil_socket_t sig, short events, void* user_data);
 
 int main()
 {
@@ -61,7 +61,7 @@ int main()
     }
 
     // 创建一个信号事件
-    signal_event = evsignal_new(base, SIGINT, singal_cb, (void*)base);
+    signal_event = evsignal_new(base, SIGINT, signal_cb, (void*)base);
     // 将信号事件设置为未决的，只有未决的事件才会被处理
     if (!signal_event || event_add(signal_event, NULL) < 0)
     {
@@ -121,7 +121,7 @@ static void conn_eventcb(struct bufferevent* bev, short events, void* user_data)
     bufferevent_free(bev);
 }
 
-static void signal_cb(evutil_socket_t, short events, void* user_data)
+static void signal_cb(evutil_socket_t sig, short events, void* user_data)
 {
     struct event_base* base = user_data;
     struct timeval delay = {2, 0};

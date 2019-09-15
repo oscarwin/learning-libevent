@@ -29,7 +29,6 @@
 # Autotools stuff
 .deps
 .dirstamp
-Makefile
 Makefile.in
 
 # Libtool stuff

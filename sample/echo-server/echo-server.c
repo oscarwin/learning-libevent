@@ -16,6 +16,12 @@
 static const int PORT = 9999;
 static const char MESSAGE[] = "hello world\n";
 
+static void listener_cb(struct evconnlistener* listener, evutil_socket_t fd, 
+    struct sockaddr *addr, int len, void* user_data);
+static void conn_writecb(struct bufferevent *bev, void *user_data);
+static void conn_eventcb(struct bufferevent* bev, short events, void* user_data);
+static void signal_cb(evutil_socket_t, short events, void* user_data);
+
 int main()
 {
     // event_base 结构体是 libevent 实现时间循环的核心，每个事件循环通过 event_base 来调度

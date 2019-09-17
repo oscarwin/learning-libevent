@@ -37,19 +37,29 @@ int main(int argc, char const *argv[])
 		return 1;
 	}
 
-    // 从服务读取
-    if ((n = read(iSockFd, recvBuf, BUFSIZE)) < 0)
-    {
-        perror("write error");
-        return 1;
-    }
+	while(fgets(sendBuf, BUFSIZE, stdin) != NULL)
+	{
+		// 将数据发送到服务器
+		if(write(iSockFd, sendBuf, strlen(sendBuf)) < 0)
+		{
+			perror("write error");
+			return 1;
+		}
 
-    // 输出到标准输出
-    if (write(STDOUT_FILENO, recvBuf, n) < 0)
-    {
-        perror("write error");
-        return 1;
-    }
+		// 从服务读取
+		if ((n = read(iSockFd, recvBuf, BUFSIZE)) < 0)
+		{
+			perror("read error");
+			return 1;
+		}
+
+		// 输出到标准输出
+		if (write(STDOUT_FILENO, recvBuf, n) < 0)
+		{
+			perror("write error");
+			return 1;
+		}
+	}
 
 	close(iSockFd);
 

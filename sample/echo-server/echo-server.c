@@ -18,9 +18,11 @@ static const char MESSAGE[] = "hello world\n";
 
 static void listener_cb(struct evconnlistener* listener, evutil_socket_t fd, 
     struct sockaddr *addr, int len, void* user_data);
-static void conn_writecb(struct bufferevent *bev, void *user_data);
+// static void conn_writecb(struct bufferevent *bev, void *user_data);
+static void conn_readcb(struct bufferevent *bev, void *user_data);
 static void conn_eventcb(struct bufferevent* bev, short events, void* user_data);
 static void signal_cb(evutil_socket_t sig, short events, void* user_data);
+static void listen_error_cb(struct evconnlistener *listener, void *user_data);
 
 int main()
 {
@@ -59,6 +61,13 @@ int main()
         fprintf(stderr, "Could not create a listener\n");
         return 1;
     }
+    else
+    {
+        printf("Listening on port:%d\n", PORT);
+    }
+
+    // 注册错误处理回调函数
+    evconnlistener_set_error_cb(listener, listen_error_cb);
 
     // 创建一个信号事件
     signal_event = evsignal_new(base, SIGINT, signal_cb, (void*)base);
@@ -81,30 +90,39 @@ int main()
     return 0;
 }
 
-static void listener_cb(struct evconnlistener* listener, evutil_socket_t fd, 
+static void listener_cb(struct evconnlistener *listener, evutil_socket_t fd, 
     struct sockaddr *addr, int len, void* user_data)
 {
     struct event_base* base = user_data;
     struct bufferevent* bev;
-    // 新建一个bufferevent，每个 bufferevent 都有一个输入缓冲区和输出缓冲区
+    /* 新建立了一个连接套接字，为这个套接字新建一个bufferevent
+       每个 bufferevent 都有一个输入缓冲区和输出缓冲区 */
     bev = bufferevent_socket_new(base, fd, BEV_OPT_CLOSE_ON_FREE);
     // 每个 bufferevent 有两个数据相关的回调:一个读取回调和一个写入回调，会分别操作
     // 输入缓冲区和输出缓冲区
     // 这里为 bufferevent 设定回调函数，conn_writecb在写入数据后调用，conn_eventcb出错时调用
-    bufferevent_setcb(bev, NULL, conn_writecb, conn_eventcb, NULL);
-    bufferevent_enable(bev, EV_WRITE);
-    bufferevent_disable(bev, EV_READ);
-    // 向 bufferevent 写入 hello-world
-    bufferevent_write(bev, MESSAGE, strlen(MESSAGE));
+    bufferevent_setcb(bev, conn_readcb, NULL, conn_eventcb, NULL);
+    bufferevent_enable(bev, EV_WRITE | EV_READ);
+    /* 向刚建立连接的客户端先打一个招呼，向 bufferevent 写入 hello-world */
+    // bufferevent_write(bev, MESSAGE, strlen(MESSAGE));
 }
 
-static void conn_writecb(struct bufferevent *bev, void *user_data)
+// static void conn_writecb(struct bufferevent *bev, void *user_data)
+// {
+// 	struct evbuffer *output = bufferevent_get_output(bev);
+// 	if (evbuffer_get_length(output) == 0) {
+// 		printf("flushed answer\n");
+// 		bufferevent_free(bev);
+// 	}
+// }
+
+/* 当 bufferevent 中有数据可以读时，这个回调函数会被调用 */
+static void conn_readcb(struct bufferevent *bev, void *user_data)
 {
-	struct evbuffer *output = bufferevent_get_output(bev);
-	if (evbuffer_get_length(output) == 0) {
-		printf("flushed answer\n");
-		bufferevent_free(bev);
-	}
+    struct evbuffer *input = bufferevent_get_input(bev);
+    struct evbuffer *output = bufferevent_get_output(bev);
+    /* 将 input 缓存区的数据全部拷贝到 output 缓冲区中 */
+    evbuffer_add_buffer(output, input);
 }
 
 static void conn_eventcb(struct bufferevent* bev, short events, void* user_data)
@@ -128,4 +146,13 @@ static void signal_cb(evutil_socket_t sig, short events, void* user_data)
     printf("Caught an interrupt signal; exiting cleanly in two seconds.\n");
     // 退出事件循环
     event_base_loopexit(base, &delay);
+}
+
+static void listen_error_cb(struct evconnlistener *listener, void *user_data)
+{
+    struct event_base *base = evconnlistener_get_base(listener);
+    int err = EVUTIL_SOCKET_ERROR();
+    fprintf(stderr, "Got an error %d (%s) on the listener. Shutting down.\n", 
+        err, evutil_socket_error_to_string(err));
+    event_base_loopexit(base, NULL);
 }

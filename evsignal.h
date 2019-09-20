@@ -1,5 +1,5 @@
 /*
- * Copyright 2003 Niels Provos <provos@citi.umich.edu>
+ * Copyright 2000-2002 Niels Provos <provos@citi.umich.edu>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,29 +24,29 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <stdint.h>
+#ifndef _EVSIGNAL_H_
+#define _EVSIGNAL_H_
 
-#include <sys/param.h>
-#include <sys/types.h>
-#include <sys/syscall.h>
-#include <sys/epoll.h>
-#include <unistd.h>
+typedef void (*ev_sighandler_t)(int);
 
-int
-epoll_create(int size)
-{
-	return (syscall(__NR_epoll_create, size));
-}
+struct evsignal_info {
+	struct event ev_signal;
+	int ev_signal_pair[2];
+	int ev_signal_added;
+	volatile sig_atomic_t evsignal_caught;
+	struct event_list evsigevents[NSIG];
+	sig_atomic_t evsigcaught[NSIG];
+#ifdef HAVE_SIGACTION
+	struct sigaction **sh_old;
+#else
+	ev_sighandler_t **sh_old;
+#endif
+	int sh_old_max;
+};
+int evsignal_init(struct event_base *);
+void evsignal_process(struct event_base *);
+int evsignal_add(struct event *);
+int evsignal_del(struct event *);
+void evsignal_dealloc(struct event_base *);
 
-int
-epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
-{
-
-	return (syscall(__NR_epoll_ctl, epfd, op, fd, event));
-}
-
-int
-epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
-{
-	return (syscall(__NR_epoll_wait, epfd, events, maxevents, timeout));
-}
+#endif /* _EVSIGNAL_H_ */

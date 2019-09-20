@@ -5,7 +5,7 @@
  *
  * Based on err.c, which was adapted from OpenBSD libc *err* *warn* code.
  *
- * Copyright (c) 2005-2012 Niels Provos and Nick Mathewson
+ * Copyright (c) 2005 Nick Mathewson <nickm@freehaven.net>
  *
  * Copyright (c) 2000 Dug Song <dugsong@monkey.org>
  *
@@ -37,108 +37,53 @@
  * SUCH DAMAGE.
  */
 
-#include "event2/event-config.h"
-#include "evconfig-private.h"
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
-#ifdef _WIN32
-#include <winsock2.h>
+#ifdef WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #undef WIN32_LEAN_AND_MEAN
 #endif
 #include <sys/types.h>
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#else
+#include <sys/_libevent_time.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 #include <errno.h>
-#include "event2/event.h"
-#include "event2/util.h"
+#include "event.h"
 
-#include "log-internal.h"
+#include "log.h"
+#include "evutil.h"
 
+static void _warn_helper(int severity, int log_errno, const char *fmt,
+                         va_list ap);
 static void event_log(int severity, const char *msg);
-static void event_exit(int errcode) EV_NORETURN;
-
-static event_fatal_cb fatal_fn = NULL;
-
-#ifdef EVENT_DEBUG_LOGGING_ENABLED
-#ifdef USE_DEBUG
-#define DEFAULT_MASK EVENT_DBG_ALL
-#else
-#define DEFAULT_MASK 0
-#endif
-
-EVENT2_EXPORT_SYMBOL ev_uint32_t event_debug_logging_mask_ = DEFAULT_MASK;
-#endif /* EVENT_DEBUG_LOGGING_ENABLED */
-
-void
-event_enable_debug_logging(ev_uint32_t which)
-{
-#ifdef EVENT_DEBUG_LOGGING_ENABLED
-	event_debug_logging_mask_ = which;
-#endif
-}
-
-void
-event_set_fatal_callback(event_fatal_cb cb)
-{
-	fatal_fn = cb;
-}
-
-static void
-event_exit(int errcode)
-{
-	if (fatal_fn) {
-		fatal_fn(errcode);
-		exit(errcode); /* should never be reached */
-	} else if (errcode == EVENT_ERR_ABORT_)
-		abort();
-	else
-		exit(errcode);
-}
 
 void
 event_err(int eval, const char *fmt, ...)
 {
 	va_list ap;
-
+	
 	va_start(ap, fmt);
-	event_logv_(EVENT_LOG_ERR, strerror(errno), fmt, ap);
+	_warn_helper(_EVENT_LOG_ERR, errno, fmt, ap);
 	va_end(ap);
-	event_exit(eval);
+	exit(eval);
 }
 
 void
 event_warn(const char *fmt, ...)
 {
 	va_list ap;
-
+	
 	va_start(ap, fmt);
-	event_logv_(EVENT_LOG_WARN, strerror(errno), fmt, ap);
-	va_end(ap);
-}
-
-void
-event_sock_err(int eval, evutil_socket_t sock, const char *fmt, ...)
-{
-	va_list ap;
-	int err = evutil_socket_geterror(sock);
-
-	va_start(ap, fmt);
-	event_logv_(EVENT_LOG_ERR, evutil_socket_error_to_string(err), fmt, ap);
-	va_end(ap);
-	event_exit(eval);
-}
-
-void
-event_sock_warn(evutil_socket_t sock, const char *fmt, ...)
-{
-	va_list ap;
-	int err = evutil_socket_geterror(sock);
-
-	va_start(ap, fmt);
-	event_logv_(EVENT_LOG_WARN, evutil_socket_error_to_string(err), fmt, ap);
+	_warn_helper(_EVENT_LOG_WARN, errno, fmt, ap);
 	va_end(ap);
 }
 
@@ -146,20 +91,20 @@ void
 event_errx(int eval, const char *fmt, ...)
 {
 	va_list ap;
-
+	
 	va_start(ap, fmt);
-	event_logv_(EVENT_LOG_ERR, NULL, fmt, ap);
+	_warn_helper(_EVENT_LOG_ERR, -1, fmt, ap);
 	va_end(ap);
-	event_exit(eval);
+	exit(eval);
 }
 
 void
 event_warnx(const char *fmt, ...)
 {
 	va_list ap;
-
+	
 	va_start(ap, fmt);
-	event_logv_(EVENT_LOG_WARN, NULL, fmt, ap);
+	_warn_helper(_EVENT_LOG_WARN, -1, fmt, ap);
 	va_end(ap);
 }
 
@@ -167,40 +112,38 @@ void
 event_msgx(const char *fmt, ...)
 {
 	va_list ap;
-
+	
 	va_start(ap, fmt);
-	event_logv_(EVENT_LOG_MSG, NULL, fmt, ap);
+	_warn_helper(_EVENT_LOG_MSG, -1, fmt, ap);
 	va_end(ap);
 }
 
 void
-event_debugx_(const char *fmt, ...)
+_event_debugx(const char *fmt, ...)
 {
 	va_list ap;
-
+	
 	va_start(ap, fmt);
-	event_logv_(EVENT_LOG_DEBUG, NULL, fmt, ap);
+	_warn_helper(_EVENT_LOG_DEBUG, -1, fmt, ap);
 	va_end(ap);
 }
 
-void
-event_logv_(int severity, const char *errstr, const char *fmt, va_list ap)
+static void
+_warn_helper(int severity, int log_errno, const char *fmt, va_list ap)
 {
 	char buf[1024];
 	size_t len;
-
-	if (severity == EVENT_LOG_DEBUG && !event_debug_get_logging_mask_())
-		return;
 
 	if (fmt != NULL)
 		evutil_vsnprintf(buf, sizeof(buf), fmt, ap);
 	else
 		buf[0] = '\0';
 
-	if (errstr) {
+	if (log_errno >= 0) {
 		len = strlen(buf);
 		if (len < sizeof(buf) - 3) {
-			evutil_snprintf(buf + len, sizeof(buf) - len, ": %s", errstr);
+			evutil_snprintf(buf + len, sizeof(buf) - len, ": %s",
+			    strerror(log_errno));
 		}
 	}
 
@@ -223,16 +166,16 @@ event_log(int severity, const char *msg)
 	else {
 		const char *severity_str;
 		switch (severity) {
-		case EVENT_LOG_DEBUG:
+		case _EVENT_LOG_DEBUG:
 			severity_str = "debug";
 			break;
-		case EVENT_LOG_MSG:
+		case _EVENT_LOG_MSG:
 			severity_str = "msg";
 			break;
-		case EVENT_LOG_WARN:
+		case _EVENT_LOG_WARN:
 			severity_str = "warn";
 			break;
-		case EVENT_LOG_ERR:
+		case _EVENT_LOG_ERR:
 			severity_str = "err";
 			break;
 		default:

@@ -32,11 +32,11 @@
  *	@(#)queue.h	8.5 (Berkeley) 8/20/94
  */
 
-#ifndef	SYS_QUEUE_H__
-#define	SYS_QUEUE_H__
+#ifndef	_SYS_QUEUE_H_
+#define	_SYS_QUEUE_H_
 
 /*
- * This file defines five types of data structures: singly-linked lists,
+ * This file defines five types of data structures: singly-linked lists, 
  * lists, simple queues, tail queues, and circular queues.
  *
  *
@@ -89,11 +89,11 @@
 struct name {								\
 	struct type *slh_first;	/* first element */			\
 }
-
+ 
 #define	SLIST_HEAD_INITIALIZER(head)					\
 	{ NULL }
 
-#ifndef _WIN32
+#ifndef WIN32
 #define SLIST_ENTRY(type)						\
 struct {								\
 	struct type *sle_next;	/* next element */			\
@@ -272,6 +272,7 @@ struct {								\
 /*
  * Tail queue definitions.
  */
+/* 定义链表的头节点，用宏来实现了模板的效果 */
 #define TAILQ_HEAD(name, type)						\
 struct name {								\
 	struct type *tqh_first;	/* first element */			\
@@ -281,14 +282,15 @@ struct name {								\
 #define TAILQ_HEAD_INITIALIZER(head)					\
 	{ NULL, &(head).tqh_first }
 
+/* 定义链表的普通节点 */
 #define TAILQ_ENTRY(type)						\
 struct {								\
 	struct type *tqe_next;	/* next element */			\
 	struct type **tqe_prev;	/* address of previous next element */	\
 }
 
-/*
- * tail queue access methods
+/* 
+ * tail queue access methods 
  */
 #define	TAILQ_FIRST(head)		((head)->tqh_first)
 #define	TAILQ_END(head)			NULL
@@ -306,7 +308,7 @@ struct {								\
 	    (var) != TAILQ_END(head);					\
 	    (var) = TAILQ_NEXT(var, field))
 
-#define TAILQ_FOREACH_REVERSE(var, head, headname, field)		\
+#define TAILQ_FOREACH_REVERSE(var, head, field, headname)		\
 	for((var) = TAILQ_LAST(head, headname);				\
 	    (var) != TAILQ_END(head);					\
 	    (var) = TAILQ_PREV(var, headname, field))
@@ -391,7 +393,7 @@ struct {								\
 }
 
 /*
- * Circular queue access methods
+ * Circular queue access methods 
  */
 #define	CIRCLEQ_FIRST(head)		((head)->cqh_first)
 #define	CIRCLEQ_LAST(head)		((head)->cqh_last)
@@ -485,4 +487,4 @@ struct {								\
 		(elm2)->field.cqe_prev->field.cqe_next = (elm2);	\
 } while (0)
 
-#endif	/* !SYS_QUEUE_H__ */
+#endif	/* !_SYS_QUEUE_H_ */

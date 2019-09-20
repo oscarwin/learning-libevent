@@ -1,5 +1,5 @@
 /*
- * Copyright 2003 Niels Provos <provos@citi.umich.edu>
+ * Copyright (c) 2000-2004 Niels Provos <provos@citi.umich.edu>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,29 +24,28 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <stdint.h>
+#ifndef _LOG_H_
+#define _LOG_H_
 
-#include <sys/param.h>
-#include <sys/types.h>
-#include <sys/syscall.h>
-#include <sys/epoll.h>
-#include <unistd.h>
+#ifdef __GNUC__
+#define EV_CHECK_FMT(a,b) __attribute__((format(printf, a, b)))
+#else
+#define EV_CHECK_FMT(a,b)
+#endif
 
-int
-epoll_create(int size)
-{
-	return (syscall(__NR_epoll_create, size));
-}
+void event_err(int eval, const char *fmt, ...) EV_CHECK_FMT(2,3);
+void event_warn(const char *fmt, ...) EV_CHECK_FMT(1,2);
+void event_errx(int eval, const char *fmt, ...) EV_CHECK_FMT(2,3);
+void event_warnx(const char *fmt, ...) EV_CHECK_FMT(1,2);
+void event_msgx(const char *fmt, ...) EV_CHECK_FMT(1,2);
+void _event_debugx(const char *fmt, ...) EV_CHECK_FMT(1,2);
 
-int
-epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
-{
+#ifdef USE_DEBUG
+#define event_debug(x) _event_debugx x
+#else
+#define event_debug(x) do {;} while (0)
+#endif
 
-	return (syscall(__NR_epoll_ctl, epfd, op, fd, event));
-}
+#undef EV_CHECK_FMT
 
-int
-epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
-{
-	return (syscall(__NR_epoll_wait, epfd, events, maxevents, timeout));
-}
+#endif

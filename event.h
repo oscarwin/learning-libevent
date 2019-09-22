@@ -753,13 +753,17 @@ int	event_priority_set(struct event *, int);
 /* These functions deal with buffering input and output */
 
 struct evbuffer {
+    // 缓存区指针
 	u_char *buffer;
+    // 永远指向 buffer 的最初的起始位置
 	u_char *orig_buffer;
-
+    // 数据相对于buffer起始位置的偏移，misalign + off = totallen
 	size_t misalign;
+    // buffer 的总长度
 	size_t totallen;
+    // buffer 中存在数据的大小
 	size_t off;
-
+    // callback 函数
 	void (*cb)(struct evbuffer *, size_t, size_t, void *);
 	void *cbarg;
 };

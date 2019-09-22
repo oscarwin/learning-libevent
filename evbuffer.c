@@ -81,6 +81,7 @@ bufferevent_read_pressure_cb(struct evbuffer *buf, size_t old, size_t now,
 	 * If we are below the watermark then reschedule reading if it's
 	 * still enabled.
 	 */
+	/* evbuffer的水位下降到正常水平后，将callback置为null，并且重新将读事件加入到事件循环中 */
 	if (bufev->wm_read.high == 0 || now < bufev->wm_read.high) {
 		evbuffer_setcb(buf, NULL, NULL);
 
@@ -107,23 +108,33 @@ bufferevent_readcb(int fd, short event, void *arg)
 	 * If we have a high watermark configured then we don't want to
 	 * read more data than would make us reach the watermark.
 	 */
+    /* 如果设置了高水位 */
 	if (bufev->wm_read.high != 0) {
+        /* 计算当前偏移量离高水位的距离 */
 		howmuch = bufev->wm_read.high - EVBUFFER_LENGTH(bufev->input);
 		/* we might have lowered the watermark, stop reading */
+        /* 已经达到了高水位，为了降低水位，*/
 		if (howmuch <= 0) {
+            /* 获取输入缓冲区 */
 			struct evbuffer *buf = bufev->input;
+            /* 删除读事件 */
 			event_del(&bufev->ev_read);
+			/* 给evbuffer设定callback函数bufferevent_read_pressure_cb，当evbuffer的off发生变化时都会调用该函数 */
 			evbuffer_setcb(buf,
 			    bufferevent_read_pressure_cb, bufev);
 			return;
 		}
 	}
 
+	/* evbuffer 从套接字中读取数据，由于采用的是水平触发，所以不用一次性全部读完
+	** evbuffer 采用的是读最多多少个字节，没有读完的数据还会继续触发 */
 	res = evbuffer_read(bufev->input, fd, howmuch);
 	if (res == -1) {
+		// 没有数据可读或者信号中断，跳转到reschedule，将读事件重新加入到事件循环中
 		if (errno == EAGAIN || errno == EINTR)
 			goto reschedule;
 		/* error case */
+		// 否则就是其他错误，调用错误处理函数
 		what |= EVBUFFER_ERROR;
 	} else if (res == 0) {
 		/* eof case */
@@ -133,12 +144,15 @@ bufferevent_readcb(int fd, short event, void *arg)
 	if (res <= 0)
 		goto error;
 
+	/* 将读事件加入到事件循环中，如果将事件指定为persist，就不用重复加了 */
 	bufferevent_add(&bufev->ev_read, bufev->timeout_read);
 
 	/* See if this callbacks meets the water marks */
 	len = EVBUFFER_LENGTH(bufev->input);
+	/* 如果低水位不为0，且当前数据长度没有达到低水位，那么就不调用用户注册的处理函数 */
 	if (bufev->wm_read.low != 0 && len < bufev->wm_read.low)
 		return;
+	/* 高水位不为0，且这一次读操作后导致数据超过了高水位，则从事件循环中删除读操作 */
 	if (bufev->wm_read.high != 0 && len >= bufev->wm_read.high) {
 		struct evbuffer *buf = bufev->input;
 		event_del(&bufev->ev_read);
@@ -148,6 +162,7 @@ bufferevent_readcb(int fd, short event, void *arg)
 	}
 
 	/* Invoke the user callback - must always be called last */
+	/* 调用用户注册的读回调函数 */
 	if (bufev->readcb != NULL)
 		(*bufev->readcb)(bufev, bufev->cbarg);
 	return;
@@ -172,6 +187,7 @@ bufferevent_writecb(int fd, short event, void *arg)
 		goto error;
 	}
 
+	/* 如果输出缓存区中还有数据，则调用evbuffer_write将缓存区中的数据写入到套接字中 */
 	if (EVBUFFER_LENGTH(bufev->output)) {
 	    res = evbuffer_write(bufev->output, fd);
 	    if (res == -1) {
@@ -197,6 +213,8 @@ bufferevent_writecb(int fd, short event, void *arg)
 		    goto error;
 	}
 
+	/* 如果缓存区中还有数据没有写完，再次将写事件注册到事件循环中 
+	** 这时判断没有数据，如果用户后面再写入了数据如何注册到监听事件中呢？ */
 	if (EVBUFFER_LENGTH(bufev->output) != 0)
 		bufferevent_add(&bufev->ev_write, bufev->timeout_write);
 
@@ -204,6 +222,7 @@ bufferevent_writecb(int fd, short event, void *arg)
 	 * Invoke the user callback if our buffer is drained or below the
 	 * low watermark.
 	 */
+	/* 输出缓存区的数据低于第水位了就调用用户注册的回调函数 */
 	if (bufev->writecb != NULL &&
 	    EVBUFFER_LENGTH(bufev->output) <= bufev->wm_write.low)
 		(*bufev->writecb)(bufev, bufev->cbarg);
@@ -252,10 +271,14 @@ bufferevent_new(int fd, evbuffercb readcb, evbuffercb writecb,
 		return (NULL);
 	}
 
-    /* */
+    /* 为这个 evbuffer 初始化一个读事件和一个写事件 
+    ** 读事件绑定到 evbuffer 的 ev_read 成员上，
+    ** 写事件绑定到 evbuffer 的 ev_write 成员上
+    ** 读事件的回调函数为 bufferevent_writecb, 写事件的回调函数为 bufferevent_readcb */
 	event_set(&bufev->ev_read, fd, EV_READ, bufferevent_readcb, bufev);
 	event_set(&bufev->ev_write, fd, EV_WRITE, bufferevent_writecb, bufev);
 
+    /* 为 bufferevent 设定 callback 函数 */
 	bufferevent_setcb(bufev, readcb, writecb, errorcb, cbarg);
 
 	/*

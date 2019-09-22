@@ -71,6 +71,7 @@ evbuffer_new(void)
 {
 	struct evbuffer *buffer;
 	
+    // 初始化时只分配了evbuffer结构体的空间，并没有分配缓存区的空间 
 	buffer = calloc(1, sizeof(struct evbuffer));
 
 	return (buffer);
@@ -341,6 +342,11 @@ evbuffer_readln(struct evbuffer *buffer, size_t *n_read_out,
 static void
 evbuffer_align(struct evbuffer *buf)
 {
+    /*
+    是不是可以加一行如下的代码，避免重复拷贝
+    if (buf->buffer == buf->orig_buffer) return;
+    */
+    // 把数据重新拷贝到以0位起始点，memmove可以处理重叠问题
 	memmove(buf->orig_buffer, buf->buffer, buf->off);
 	buf->buffer = buf->orig_buffer;
 	buf->misalign = 0;
@@ -351,7 +357,7 @@ evbuffer_align(struct evbuffer *buf)
 #endif
 
 /* Expands the available space in the event buffer to at least datlen */
-
+/* 扩容 event buffer datlen 的空间 */
 int
 evbuffer_expand(struct evbuffer *buf, size_t datlen)
 {
@@ -360,10 +366,12 @@ evbuffer_expand(struct evbuffer *buf, size_t datlen)
 	assert(buf->totallen >= used);
 
 	/* If we can fit all the data, then we don't have to do anything */
+    /* 如果剩余空间够，那么就不需要扩容 */
 	if (buf->totallen - used >= datlen)
 		return (0);
 	/* If we would need to overflow to fit this much data, we can't
 	 * do anything. */
+    /* 如果需要的空间已经超出size_t类型的最大值，返回错误 */
 	if (datlen > SIZE_MAX - buf->off)
 		return (-1);
 
@@ -371,6 +379,7 @@ evbuffer_expand(struct evbuffer *buf, size_t datlen)
 	 * If the misalignment fulfills our data needs, we just force an
 	 * alignment to happen.  Afterwards, we have enough space.
 	 */
+    /* 如果重新整理buffer中数据的位置就能容纳下这批数据，那么就整理数据的位置 */
 	if (buf->totallen - buf->off >= datlen) {
 		evbuffer_align(buf);
 	} else {
@@ -378,8 +387,10 @@ evbuffer_expand(struct evbuffer *buf, size_t datlen)
 		size_t length = buf->totallen;
 		size_t need = buf->off + datlen;
 
+        // 至少分配256个字节
 		if (length < 256)
 			length = 256;
+        // 如果需要的空间小于最大的一半，那么就按照256的整数倍进行扩容，否者按实际需要扩容
 		if (need < SIZE_MAX / 2) {
 			while (length < need) {
 				length <<= 1;
@@ -390,6 +401,7 @@ evbuffer_expand(struct evbuffer *buf, size_t datlen)
 
 		if (buf->orig_buffer != buf->buffer)
 			evbuffer_align(buf);
+        // 分配空间
 		if ((newbuf = realloc(buf->buffer, length)) == NULL)
 			return (-1);
 
@@ -400,6 +412,7 @@ evbuffer_expand(struct evbuffer *buf, size_t datlen)
 	return (0);
 }
 
+/* 向evbuffer中添加数据 */
 int
 evbuffer_add(struct evbuffer *buf, const void *data, size_t datlen)
 {
@@ -420,6 +433,7 @@ evbuffer_add(struct evbuffer *buf, const void *data, size_t datlen)
 	return (0);
 }
 
+/* 向套接字写数据后调整buffer的状态 */
 void
 evbuffer_drain(struct evbuffer *buf, size_t len)
 {
@@ -450,11 +464,14 @@ evbuffer_drain(struct evbuffer *buf, size_t len)
 
 #define EVBUFFER_MAX_READ	4096
 
+/* 从文件描述符读数据到 buffer 中 */
 int
 evbuffer_read(struct evbuffer *buf, int fd, int howmuch)
 {
 	u_char *p;
+    // 将当前的偏移量记录下来
 	size_t oldoff = buf->off;
+    // 一次读的最大的字节数，4Kb
 	int n = EVBUFFER_MAX_READ;
 
 #if defined(FIONREAD)
@@ -462,6 +479,7 @@ evbuffer_read(struct evbuffer *buf, int fd, int howmuch)
 	long lng = n;
 	if (ioctlsocket(fd, FIONREAD, &lng) == -1 || (n=lng) <= 0) {
 #else
+    /* ioctl 函数配合 FIONREAD 选项可以得到套接字中有多少数据可以读 */
 	if (ioctl(fd, FIONREAD, &n) == -1 || n <= 0) {
 #endif
 		n = EVBUFFER_MAX_READ;
@@ -473,12 +491,17 @@ evbuffer_read(struct evbuffer *buf, int fd, int howmuch)
 		 * about it.  If the reader does not tell us how much
 		 * data we should read, we artifically limit it.
 		 */
+        /* 如果可读的数据大于totallen的4倍 */
 		if ((size_t)n > buf->totallen << 2)
+            /**/
 			n = buf->totallen << 2;
 		if (n < EVBUFFER_MAX_READ)
 			n = EVBUFFER_MAX_READ;
 	}
 #endif	
+    /* howmuch 小于 0 说明没有开启高水位，默认读最大的数据量 
+    ** howmuch 大于 n 说明开启了高水位，但是可读的范围比一次最大的还要多
+    ** 那么也只读最大的范围 */
 	if (howmuch < 0 || howmuch > n)
 		howmuch = n;
 
@@ -487,18 +510,20 @@ evbuffer_read(struct evbuffer *buf, int fd, int howmuch)
 		return (-1);
 
 	/* We can append new data at this point */
+    // 将指针指到buffer数据的最后
 	p = buf->buffer + buf->off;
 
 #ifndef WIN32
 	n = read(fd, p, howmuch);
 #else
+    /* 从文件描述符中读数据 */
 	n = recv(fd, p, howmuch, 0);
 #endif
 	if (n == -1)
 		return (-1);
 	if (n == 0)
 		return (0);
-
+	/* 修改文件偏移量 */
 	buf->off += n;
 
 	/* Tell someone about changes in this buffer */

@@ -117,6 +117,7 @@ epoll_init(struct event_base *base)
 		return (NULL);
 
 	/* Initalize the kernel queue */
+    /* 创建 epoll fd */
 	if ((epfd = epoll_create(32000)) == -1) {
 		if (errno != ENOSYS)
 			event_warn("epoll_create");
@@ -125,7 +126,7 @@ epoll_init(struct event_base *base)
 
 	FD_CLOSEONEXEC(epfd);
 
-	if (!(epollop = calloc(1, sizeof(struct epollop))))
+	if (!(bv  = calloc(1, sizeof(struct epollop))))
 		return (NULL);
 
 	epollop->epfd = epfd;
@@ -136,6 +137,7 @@ epoll_init(struct event_base *base)
 		free(epollop);
 		return (NULL);
 	}
+    /* 初始化事件数量 */
 	epollop->nevents = INITIAL_NEVENTS;
 
 	epollop->fds = calloc(INITIAL_NFILES, sizeof(struct evepoll));
@@ -245,6 +247,7 @@ epoll_dispatch(struct event_base *base, void *arg, struct timeval *tv)
 	if (res == epollop->nevents && epollop->nevents < MAX_NEVENTS) {
 		/* We used all of the event space this time.  We should
 		   be ready for more events next time. */
+        /* 如果这次返回的事件数量占满了所有的事件空间，则扩容 */
 		int new_nevents = epollop->nevents * 2;
 		struct epoll_event *new_events;
 
@@ -271,15 +274,20 @@ epoll_add(void *arg, struct event *ev)
 	if (ev->ev_events & EV_SIGNAL)
 		return (evsignal_add(ev));
 
+    // 监听事件的文件描述符
 	fd = ev->ev_fd;
+    // 如果文件描述符大于当前的就扩容这个数组
 	if (fd >= epollop->nfds) {
 		/* Extent the file descriptor array as necessary */
 		if (epoll_recalc(ev->ev_base, epollop, fd) == -1)
 			return (-1);
 	}
+    // 获取这个文件描述上读写描述文件
 	evep = &epollop->fds[fd];
+    // 默认为添加事件类型
 	op = EPOLL_CTL_ADD;
 	events = 0;
+    // 如果这个文件描述符已经有注册过的事件，将操作更新为修改
 	if (evep->evread != NULL) {
 		events |= EPOLLIN;
 		op = EPOLL_CTL_MOD;
@@ -288,7 +296,7 @@ epoll_add(void *arg, struct event *ev)
 		events |= EPOLLOUT;
 		op = EPOLL_CTL_MOD;
 	}
-
+    // 将传入事件更新
 	if (ev->ev_events & EV_READ)
 		events |= EPOLLIN;
 	if (ev->ev_events & EV_WRITE)
@@ -300,6 +308,7 @@ epoll_add(void *arg, struct event *ev)
 			return (-1);
 
 	/* Update events responsible */
+    /* 更新这个文件描述符的上的事件 */
 	if (ev->ev_events & EV_READ)
 		evep->evread = ev;
 	if (ev->ev_events & EV_WRITE)

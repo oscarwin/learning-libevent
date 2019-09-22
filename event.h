@@ -37,9 +37,16 @@
   timeout has been reached. Furthermore, libevent also support callbacks due
   to signals or regular timeouts.
 
+  libevent 是一个基于事件通知的网络库，可以用来编写可扩展的网络服务器。当指定的事件
+  或者超时发生在一个文件描述符上，libevent 的 API 提供了一种机制可以执行相应的回调
+  函数来处理这些事件。另外，libevent 还支持对于信号和超时也采用回调处理。
+
   libevent is meant to replace the event loop found in event driven network
   servers. An application just needs to call event_dispatch() and then add or
   remove events dynamically without having to change the event loop.
+
+  libevent 取代了事件驱动网络服务器中的事件循环部分。一个网络服务器程序只需通过调用
+  event_dispatch() 来启动时间循环，并通过 add 和 remove 动态增减循环中的事件。
 
   Currently, libevent supports /dev/poll, kqueue(2), select(2), poll(2) and
   epoll(4). It also has experimental support for real-time signals. The
@@ -182,25 +189,34 @@ typedef unsigned char u_char;
 typedef unsigned short u_short;
 #endif
 
-#define EVLIST_TIMEOUT	0x01
-#define EVLIST_INSERTED	0x02
-#define EVLIST_SIGNAL	0x04
-#define EVLIST_ACTIVE	0x08
-#define EVLIST_INTERNAL	0x10
-#define EVLIST_INIT	0x80
+#define EVLIST_TIMEOUT	0x01 // event 在time堆中
+#define EVLIST_INSERTED	0x02 // event 已经在注册事件链表中
+#define EVLIST_SIGNAL	0x04 
+#define EVLIST_ACTIVE	0x08 // event 在激活链表中
+#define EVLIST_INTERNAL	0x10 // 内部使用标记
+#define EVLIST_INIT	0x80     // event 已经被初始化
 
 /* EVLIST_X_ Private space: 0x1000-0xf000 */
 #define EVLIST_ALL	(0xf000 | 0x9f)
 
+/*
+** libevent 关注的事件类型
+*/
+// 超时事件
 #define EV_TIMEOUT	0x01
+// 可读事件
 #define EV_READ		0x02
+// 可写事件
 #define EV_WRITE	0x04
+// 信号
 #define EV_SIGNAL	0x08
+// 标识是否为永久事件
 #define EV_PERSIST	0x10	/* Persistant event */
 
 /* Fix so that ppl dont have to run with <sys/queue.h> */
 #ifndef TAILQ_ENTRY
 #define _EVENT_DEFINED_TQENTRY
+// 定义双向链表的节点，通过宏来实现了类似模板的功能，type 就是模板类型
 #define TAILQ_ENTRY(type)						\
 struct {								\
 	struct type *tqe_next;	/* next element */			\
@@ -211,26 +227,38 @@ struct {								\
 struct event_base;
 #ifndef EVENT_NO_STRUCT
 struct event {
+    /*
+    ** libevent 用双向链表来保存注册的所有事件，包括IO事件，信号事件。
+    ** ev_next 存储了该事件在事件链表中的位置
+    ** 另外，libevent 还用另一个链表来存储激活的事件，通过遍历激活的事件链表来分发任务
+    ** ev_active_next 存储了该事件在激活事件链表中的位置
+    ** 类似，ev_signal_next 就是该事件在信号事件链表中的位置
+    */
 	TAILQ_ENTRY (event) ev_next;
 	TAILQ_ENTRY (event) ev_active_next;
 	TAILQ_ENTRY (event) ev_signal_next;
+    /* libevent 用最小堆来管理超时时间，min_heap_idx 保存堆顶的 index */
 	unsigned int min_heap_idx;	/* for managing timeouts */
 
+    /* event_base 是整个事件循环的核心，每个 event 都处在一个 event_base 中，ev_base 保存这个结构体的指针 */
 	struct event_base *ev_base;
-
+    /* 对于 IO 事件，ev_fd 是绑定的文件描述符，对于 signal 事件，ev_fd 是绑定的信号 */
 	int ev_fd;
+    /* 要处理的事件类型， */
 	short ev_events;
+    /* 事件就绪执行时，调用ev_callback的次数，通常为1 */
 	short ev_ncalls;
 	short *ev_pncalls;	/* Allows deletes in callback */
-
+    /* 事件超时的时间长度 */
 	struct timeval ev_timeout;
-
+    /* 优先级 */
 	int ev_pri;		/* smaller numbers are higher priority */
-
+    /* 响应事件时调用的callback函数 */
 	void (*ev_callback)(int, short, void *arg);
 	void *ev_arg;
 
 	int ev_res;		/* result passed to event callback */
+    /* 表示事件所处的状态 */
 	int ev_flags;
 };
 #else
@@ -257,6 +285,7 @@ struct event_list;
 struct evkeyvalq;
 #undef _EVENT_DEFINED_TQENTRY
 #else
+/* 定义了 event_list 是一个链表类型，*/
 TAILQ_HEAD (event_list, event);
 TAILQ_HEAD (evkeyvalq, evkeyval);
 #endif /* _EVENT_DEFINED_TQENTRY */
@@ -746,6 +775,7 @@ struct bufferevent;
 typedef void (*evbuffercb)(struct bufferevent *, void *);
 typedef void (*everrorcb)(struct bufferevent *, short what, void *);
 
+// 保存 buffer 高水位和低水位的结构体
 struct event_watermark {
 	size_t low;
 	size_t high;
@@ -753,22 +783,29 @@ struct event_watermark {
 
 #ifndef EVENT_NO_STRUCT
 struct bufferevent {
+    /* bufferevent 关联的event_base */
 	struct event_base *ev_base;
-
+    /* 一个bufferevent里同时维护相关于这个buffer的读事件和写事件 */
+    /* 读事件 */
 	struct event ev_read;
+    /* 写事件 */
 	struct event ev_write;
 
+    /* 维护两个buffer，读和写 */
 	struct evbuffer *input;
 	struct evbuffer *output;
 
+    /* 读和写的水位 */
 	struct event_watermark wm_read;
 	struct event_watermark wm_write;
 
+    /* 读和写已经错误处理的callback函数 */
 	evbuffercb readcb;
 	evbuffercb writecb;
 	everrorcb errorcb;
 	void *cbarg;
 
+    /* 读写阻塞的超时时间 */
 	int timeout_read;	/* in seconds */
 	int timeout_write;	/* in seconds */
 

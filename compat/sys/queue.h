@@ -272,6 +272,7 @@ struct {								\
 /*
  * Tail queue definitions.
  */
+/* 定义链表的头节点，用宏来实现了模板的效果 */
 #define TAILQ_HEAD(name, type)						\
 struct name {								\
 	struct type *tqh_first;	/* first element */			\
@@ -281,6 +282,7 @@ struct name {								\
 #define TAILQ_HEAD_INITIALIZER(head)					\
 	{ NULL, &(head).tqh_first }
 
+/* 定义链表的普通节点 */
 #define TAILQ_ENTRY(type)						\
 struct {								\
 	struct type *tqe_next;	/* next element */			\

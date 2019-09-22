@@ -229,7 +229,7 @@ bufferevent_writecb(int fd, short event, void *arg)
  * Both read and write callbacks maybe NULL.  The error callback is not
  * allowed to be NULL and have to be provided always.
  */
-
+/* 创建一个evbuffer，fd-绑定的文件描述符，readcb-读回调函数，writecb-写回调函数，errorcb-错误处理回调函数 */
 struct bufferevent *
 bufferevent_new(int fd, evbuffercb readcb, evbuffercb writecb,
     everrorcb errorcb, void *cbarg)
@@ -239,17 +239,20 @@ bufferevent_new(int fd, evbuffercb readcb, evbuffercb writecb,
 	if ((bufev = calloc(1, sizeof(struct bufferevent))) == NULL)
 		return (NULL);
 
+    /* 分配输入缓存区 */
 	if ((bufev->input = evbuffer_new()) == NULL) {
 		free(bufev);
 		return (NULL);
 	}
 
+    /* 分配输出缓存区 */
 	if ((bufev->output = evbuffer_new()) == NULL) {
 		evbuffer_free(bufev->input);
 		free(bufev);
 		return (NULL);
 	}
 
+    /* */
 	event_set(&bufev->ev_read, fd, EV_READ, bufferevent_readcb, bufev);
 	event_set(&bufev->ev_write, fd, EV_WRITE, bufferevent_writecb, bufev);
 
